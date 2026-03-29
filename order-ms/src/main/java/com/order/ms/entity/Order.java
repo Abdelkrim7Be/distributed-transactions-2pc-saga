@@ -36,11 +36,21 @@ public class Order {
 	@Column(nullable = false)
 	private OrderStatus status;
 
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false)
+	private CompensationStatus compensationStatus = CompensationStatus.NONE;
+
+	@Column
+	private String failAt;
+
 	public Map<String, Object> toSagaPayload() {
 		Map<String, Object> m = new HashMap<>();
 		m.put("productId", productId);
 		m.put("quantity", quantity);
 		m.put("amount", amount);
+		if (failAt != null && !failAt.isBlank()) {
+			m.put("failAt", failAt.trim());
+		}
 		return m;
 	}
 }

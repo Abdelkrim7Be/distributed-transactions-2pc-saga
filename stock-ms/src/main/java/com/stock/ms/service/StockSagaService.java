@@ -96,6 +96,11 @@ public class StockSagaService {
 	@Transactional
 	protected void reserveAndPublish(Long orderId, long productId, int qty, Map<String, Object> originalPayload) {
 		Instant now = Instant.now();
+		if (failAtStep(originalPayload, "STOCK")) {
+			publishFailed(orderId, originalPayload, "simulated failure (failAt=STOCK)");
+			log.warn("{} | orderId={} action=STOCK_FAIL_SIMULATED failAt=STOCK", Instant.now(), orderId);
+			return;
+		}
 		Stock row = inventoryStockRepository.findByProductId(productId).orElse(null);
 		if (row == null) {
 			log.warn("{} | orderId={} action=STOCK_NOT_FOUND productId={}", now, orderId, productId);
@@ -174,6 +179,14 @@ public class StockSagaService {
 			return n.intValue();
 		}
 		return Integer.parseInt(o.toString());
+	}
+
+	private static boolean failAtStep(Map<String, Object> payload, String step) {
+		Object v = payload != null ? payload.get("failAt") : null;
+		if (v == null) {
+			return false;
+		}
+		return step.equalsIgnoreCase(v.toString().trim());
 	}
 
 }

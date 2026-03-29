@@ -76,6 +76,12 @@ public class PaymentSagaService {
 			return;
 		}
 
+		if (failAtStep(p, "PAYMENT")) {
+			publishFailed(orderId, p, "simulated failure (failAt=PAYMENT)");
+			log.warn("{} | orderId={} action=PAYMENT_FAIL_SIMULATED failAt=PAYMENT", Instant.now(), orderId);
+			return;
+		}
+
 		if (amount >= PAYMENT_FAILURE_THRESHOLD) {
 			Payment payment = new Payment();
 			payment.setOrderId(orderId);
@@ -140,5 +146,13 @@ public class PaymentSagaService {
 			return n.doubleValue();
 		}
 		return Double.parseDouble(o.toString());
+	}
+
+	private static boolean failAtStep(Map<String, Object> payload, String step) {
+		Object v = payload != null ? payload.get("failAt") : null;
+		if (v == null) {
+			return false;
+		}
+		return step.equalsIgnoreCase(v.toString().trim());
 	}
 }

@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.order.ms.dto.CreateOrderRequest;
 import com.order.ms.dto.OrderResponse;
+import com.order.ms.entity.CompensationStatus;
 import com.order.ms.entity.Order;
 import com.order.ms.entity.OrderRepository;
 import com.order.ms.entity.OrderStatus;
@@ -36,6 +37,10 @@ public class OrderService {
 		order.setQuantity(request.getQuantity());
 		order.setAmount(request.getAmount());
 		order.setStatus(OrderStatus.CREATED);
+		order.setCompensationStatus(CompensationStatus.NONE);
+		if (request.getFailAt() != null && !request.getFailAt().isBlank()) {
+			order.setFailAt(request.getFailAt().trim());
+		}
 		order = orderRepository.save(order);
 
 		SagaEvent created = SagaEvent.of(

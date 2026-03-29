@@ -72,6 +72,12 @@ public class DeliverySagaService {
 			return;
 		}
 
+		if (failAtStep(p, "DELIVERY")) {
+			publishFailed(orderId, p, "simulated failure (failAt=DELIVERY)");
+			log.warn("{} | orderId={} action=DELIVERY_FAIL_SIMULATED failAt=DELIVERY", Instant.now(), orderId);
+			return;
+		}
+
 		if (quantity >= DELIVERY_FAILURE_MIN_QUANTITY) {
 			Delivery shipment = new Delivery();
 			shipment.setOrderId(orderId);
@@ -136,5 +142,13 @@ public class DeliverySagaService {
 			return n.intValue();
 		}
 		return Integer.parseInt(o.toString());
+	}
+
+	private static boolean failAtStep(Map<String, Object> payload, String step) {
+		Object v = payload != null ? payload.get("failAt") : null;
+		if (v == null) {
+			return false;
+		}
+		return step.equalsIgnoreCase(v.toString().trim());
 	}
 }
