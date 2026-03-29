@@ -1,7 +1,5 @@
 package com.sc.twopc.coordinator;
 
-import java.time.Instant;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -25,11 +23,17 @@ public class CoordinatorController {
 	@PostMapping("/start")
 	public ResponseEntity<StartTransactionResponse> start(
 			@RequestBody(required = false) StartTransactionRequest request) {
-		log.info("{} | POST /api/transaction/start invoked", Instant.now());
+		TwoPcStructuredLog.info(log, null, "POST /api/transaction/start received", "orchestration request accepted");
 		if (request == null) {
 			request = new StartTransactionRequest();
 		}
 		StartTransactionResponse body = coordinatorService.startTransaction(request);
+		TwoPcStructuredLog.info(
+				log,
+				body.transactionId(),
+				"POST /api/transaction/start completed",
+				"overallResult=" + body.overallResult() + " | order=" + body.orderStatus() + " | payment="
+						+ body.paymentStatus());
 		return ResponseEntity.ok(body);
 	}
 }

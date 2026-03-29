@@ -1,7 +1,5 @@
 package com.sc.twopc.order;
 
-import java.time.Instant;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,29 +23,32 @@ public class OrderService {
 		}
 	}
 
-	public TransactionResponse prepare() {
+	public TransactionResponse prepare(String transactionId) {
 		synchronized (lock) {
 			String previous = status;
 			status = PREPARED;
-			log.info("{} | order prepare | {} -> {}", Instant.now(), previous, status);
+			TwoPcStructuredLog.info(log, transactionId, "PREPARE applied",
+					"status changed from " + previous + " to " + status);
 			return new TransactionResponse(status, "Order prepared (validated, reserved)");
 		}
 	}
 
-	public TransactionResponse commit() {
+	public TransactionResponse commit(String transactionId) {
 		synchronized (lock) {
 			String previous = status;
 			status = COMMITTED;
-			log.info("{} | order commit | {} -> {}", Instant.now(), previous, status);
+			TwoPcStructuredLog.info(log, transactionId, "COMMIT applied",
+					"status changed from " + previous + " to " + status);
 			return new TransactionResponse(status, "Order committed");
 		}
 	}
 
-	public TransactionResponse rollback() {
+	public TransactionResponse rollback(String transactionId) {
 		synchronized (lock) {
 			String previous = status;
 			status = ROLLED_BACK;
-			log.info("{} | order rollback | {} -> {}", Instant.now(), previous, status);
+			TwoPcStructuredLog.info(log, transactionId, "ROLLBACK applied",
+					"status changed from " + previous + " to " + status);
 			return new TransactionResponse(status, "Order rolled back");
 		}
 	}
