@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.order.ms.dto.OrderEvent;
 import com.order.ms.entity.Order;
 import com.order.ms.entity.OrderRepository;
+import com.order.ms.entity.OrderStatus;
 
 @Component
 public class ReverseOrder {
@@ -27,7 +28,7 @@ public class ReverseOrder {
 			Optional<Order> order = repository.findById(orderEvent.getOrder().getOrderId());
 
 			order.ifPresent(o -> {
-				o.setStatus("FAILED");
+				o.setStatus(OrderStatus.FAILED);
 				this.repository.save(o);
 			});
 		} catch (Exception e) {

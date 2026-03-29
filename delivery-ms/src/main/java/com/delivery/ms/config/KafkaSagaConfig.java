@@ -48,9 +48,6 @@ public class KafkaSagaConfig {
 		props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
 		props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
 		props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-		props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
-		props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SagaEvent.class.getName());
-		props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
 		JsonDeserializer<SagaEvent> deserializer = new JsonDeserializer<>(SagaEvent.class, false);
 		deserializer.addTrustedPackages("com.sc.saga");
 		ConsumerFactory<String, SagaEvent> consumerFactory =
