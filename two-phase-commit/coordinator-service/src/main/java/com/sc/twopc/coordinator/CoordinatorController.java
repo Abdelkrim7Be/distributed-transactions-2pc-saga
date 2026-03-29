@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,9 +23,13 @@ public class CoordinatorController {
 	}
 
 	@PostMapping("/start")
-	public ResponseEntity<StartTransactionResponse> start() {
+	public ResponseEntity<StartTransactionResponse> start(
+			@RequestBody(required = false) StartTransactionRequest request) {
 		log.info("{} | POST /api/transaction/start invoked", Instant.now());
-		StartTransactionResponse body = coordinatorService.startTransaction();
+		if (request == null) {
+			request = new StartTransactionRequest();
+		}
+		StartTransactionResponse body = coordinatorService.startTransaction(request);
 		return ResponseEntity.ok(body);
 	}
 }

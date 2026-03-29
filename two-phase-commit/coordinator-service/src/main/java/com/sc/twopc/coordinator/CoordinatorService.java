@@ -34,16 +34,22 @@ public class CoordinatorService {
 		this.paymentServiceUrl = paymentServiceUrl;
 	}
 
-	public StartTransactionResponse startTransaction() {
+	public StartTransactionResponse startTransaction(StartTransactionRequest flags) {
+		if (flags == null) {
+			flags = new StartTransactionRequest();
+		}
+
 		String transactionId = UUID.randomUUID().toString();
 		log.info("{} | tx={} | 2PC transaction started", Instant.now(), transactionId);
 		transactionStates.put(transactionId, "PREPARING");
 
-		log.info("{} | tx={} | Phase 1: POST order prepare -> {}", Instant.now(), transactionId, orderServiceUrl + "/prepare");
-		PrepareOutcome orderPrepare = postPrepare(orderServiceUrl);
+		String orderPrepareUrl = withFailParam(orderServiceUrl + "/prepare", flags.isOrderPrepareFail());
+		log.info("{} | tx={} | Phase 1: POST order prepare -> {}", Instant.now(), transactionId, orderPrepareUrl);
+		PrepareOutcome orderPrepare = postPrepare(orderPrepareUrl, transactionId);
 
-		log.info("{} | tx={} | Phase 1: POST payment prepare -> {}", Instant.now(), transactionId, paymentServiceUrl + "/prepare");
-		PrepareOutcome paymentPrepare = postPrepare(paymentServiceUrl);
+		String paymentPrepareUrl = withFailParam(paymentServiceUrl + "/prepare", flags.isPaymentPrepareFail());
+		log.info("{} | tx={} | Phase 1: POST payment prepare -> {}", Instant.now(), transactionId, paymentPrepareUrl);
+		PrepareOutcome paymentPrepare = postPrepare(paymentPrepareUrl, transactionId);
 
 		boolean bothPrepared = orderPrepare.success() && paymentPrepare.success();
 		log.info(
@@ -57,23 +63,56 @@ public class CoordinatorService {
 		String paymentStatus;
 		String overallResult;
 
-		if (bothPrepared) {
-			log.info("{} | tx={} | Phase 2a: commit both participants", Instant.now(), transactionId);
-			orderStatus = postPhase2(orderServiceUrl, "commit", transactionId);
-			paymentStatus = postPhase2(paymentServiceUrl, "commit", transactionId);
-			overallResult = "COMMITTED";
-			transactionStates.put(transactionId, "COMMITTED");
-		} else {
+		if (!bothPrepared) {
 			log.warn(
 					"{} | tx={} | Phase 1 failed | rolling back both participants",
 					Instant.now(),
 					transactionId);
 			log.info("{} | tx={} | Phase 2b: rollback order", Instant.now(), transactionId);
-			orderStatus = postPhase2(orderServiceUrl, "rollback", transactionId);
+			orderStatus = postRollback(orderServiceUrl, transactionId);
 			log.info("{} | tx={} | Phase 2b: rollback payment", Instant.now(), transactionId);
-			paymentStatus = postPhase2(paymentServiceUrl, "rollback", transactionId);
+			paymentStatus = postRollback(paymentServiceUrl, transactionId);
 			overallResult = "ROLLED_BACK";
 			transactionStates.put(transactionId, "ROLLED_BACK");
+		} else {
+			String orderCommitUrl = withFailParam(orderServiceUrl + "/commit", flags.isOrderCommitFail());
+			log.info("{} | tx={} | Phase 2a: POST order commit -> {}", Instant.now(), transactionId, orderCommitUrl);
+			Phase2Result orderCommit = exchangePost(orderCommitUrl, "commit-order", transactionId);
+
+			if (!orderCommit.success()) {
+				log.warn(
+						"{} | tx={} | order commit failed | rolling back both participants",
+						Instant.now(),
+						transactionId);
+				orderStatus = postRollback(orderServiceUrl, transactionId);
+				paymentStatus = postRollback(paymentServiceUrl, transactionId);
+				overallResult = "ROLLED_BACK";
+				transactionStates.put(transactionId, "ROLLED_BACK");
+			} else {
+				String paymentCommitUrl = withFailParam(paymentServiceUrl + "/commit", flags.isPaymentCommitFail());
+				log.info(
+						"{} | tx={} | Phase 2a: POST payment commit -> {}",
+						Instant.now(),
+						transactionId,
+						paymentCommitUrl);
+				Phase2Result paymentCommit = exchangePost(paymentCommitUrl, "commit-payment", transactionId);
+
+				if (!paymentCommit.success()) {
+					log.warn(
+							"{} | tx={} | payment commit failed | rolling back both participants",
+							Instant.now(),
+							transactionId);
+					orderStatus = postRollback(orderServiceUrl, transactionId);
+					paymentStatus = postRollback(paymentServiceUrl, transactionId);
+					overallResult = "ROLLED_BACK";
+					transactionStates.put(transactionId, "ROLLED_BACK");
+				} else {
+					orderStatus = orderCommit.status();
+					paymentStatus = paymentCommit.status();
+					overallResult = "COMMITTED";
+					transactionStates.put(transactionId, "COMMITTED");
+				}
+			}
 		}
 
 		log.info(
@@ -87,8 +126,26 @@ public class CoordinatorService {
 		return new StartTransactionResponse(transactionId, orderStatus, paymentStatus, overallResult);
 	}
 
-	private PrepareOutcome postPrepare(String baseUrl) {
-		String url = baseUrl + "/prepare";
+	private static String withFailParam(String url, boolean fail) {
+		if (!fail) {
+			return url;
+		}
+		return url + (url.contains("?") ? "&" : "?") + "fail=true";
+	}
+
+	private PrepareOutcome postPrepare(String url, String transactionId) {
+		Phase2Result result = exchangePost(url, "prepare", transactionId);
+		return new PrepareOutcome(result.success());
+	}
+
+	private String postRollback(String baseUrl, String transactionId) {
+		String url = baseUrl + "/rollback";
+		Phase2Result result = exchangePost(url, "rollback", transactionId);
+		return result.status();
+	}
+
+	private Phase2Result exchangePost(String url, String logLabel, String transactionId) {
+		log.info("{} | tx={} | {} -> {}", Instant.now(), transactionId, logLabel, url);
 		try {
 			ResponseEntity<ParticipantTransactionResponse> response = restTemplate.exchange(
 					url,
@@ -96,36 +153,31 @@ public class CoordinatorService {
 					HttpEntity.EMPTY,
 					ParticipantTransactionResponse.class);
 			if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-				return new PrepareOutcome(true);
+				return new Phase2Result(true, response.getBody().status());
 			}
-			log.warn("{} | prepare non-success HTTP | url={} | status={}", Instant.now(), url, response.getStatusCode());
-			return new PrepareOutcome(false);
-		} catch (RestClientException e) {
-			log.warn("{} | prepare request failed | url={} | {}", Instant.now(), url, e.getMessage());
-			return new PrepareOutcome(false);
-		}
-	}
-
-	private String postPhase2(String baseUrl, String action, String transactionId) {
-		String url = baseUrl + "/" + action;
-		log.info("{} | tx={} | POST {} -> {}", Instant.now(), transactionId, action, url);
-		try {
-			ResponseEntity<ParticipantTransactionResponse> response = restTemplate.exchange(
+			log.warn(
+					"{} | tx={} | {} non-success HTTP | url={} | status={}",
+					Instant.now(),
+					transactionId,
+					logLabel,
 					url,
-					HttpMethod.POST,
-					HttpEntity.EMPTY,
-					ParticipantTransactionResponse.class);
-			if (response.getBody() != null) {
-				return response.getBody().status();
-			}
-			log.warn("{} | tx={} | {} empty body | url={}", Instant.now(), transactionId, action, url);
-			return "UNKNOWN";
+					response.getStatusCode());
+			return new Phase2Result(false, "UNKNOWN");
 		} catch (RestClientException e) {
-			log.error("{} | tx={} | {} failed | url={} | {}", Instant.now(), transactionId, action, url, e.getMessage());
-			return "ERROR";
+			log.warn(
+					"{} | tx={} | {} request failed | url={} | {}",
+					Instant.now(),
+					transactionId,
+					logLabel,
+					url,
+					e.getMessage());
+			return new Phase2Result(false, "ERROR");
 		}
 	}
 
 	private record PrepareOutcome(boolean success) {
+	}
+
+	private record Phase2Result(boolean success, String status) {
 	}
 }
