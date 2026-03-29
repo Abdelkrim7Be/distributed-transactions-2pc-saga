@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.4.2</version>
+		<relativePath/>
+	</parent>
+	<groupId>com.sc</groupId>
+	<artifactId>two-phase-commit</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	<name>two-phase-commit</name>
+	<description>Two-phase commit demo — multi-module parent</description>
+	<modules>
+		<module>coordinator-service</module>
+		<module>order-service</module>
+		<module>payment-service</module>
+	</modules>
+	<properties>
+		<java.version>17</java.version>
+	</properties>
+</project>
