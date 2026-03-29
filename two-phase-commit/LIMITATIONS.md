@@ -24,15 +24,15 @@ This codebase does **not** implement timeouts on participant calls. If a partici
 
 ## Comparison with the SAGA pattern
 
-| Aspect | 2PC (this demo) | SAGA |
-|--------|------------------|------|
-| Consistency model | Strong atomicity across participants in one logical transaction | Often **eventual consistency** via **forward steps + compensating transactions** |
+| Aspect             | 2PC (this demo)                                                   | SAGA                                                                                        |
+| ------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Consistency model  | Strong atomicity across participants in one logical transaction   | Often **eventual consistency** via **forward steps + compensating transactions**            |
 | Locking / blocking | Participants may hold resources while waiting for the coordinator | Typically **no global lock**; each local transaction completes and may be compensated later |
-| Coordinator | Single decision point for commit vs rollback | Usually **orchestration** or **choreography** with **per-step** success/failure handling |
-| Failure handling | Depends on coordinator and all participants reaching agreement | **Explicit compensations** (e.g. cancel order, refund payment) when a later step fails |
+| Coordinator        | Single decision point for commit vs rollback                      | Usually **orchestration** or **choreography** with **per-step** success/failure handling    |
+| Failure handling   | Depends on coordinator and all participants reaching agreement    | **Explicit compensations** (e.g. cancel order, refund payment) when a later step fails      |
 
 SAGA fits many **microservice** scenarios where **latency, partial failure, and long workflows** make a synchronous global commit impractical. 2PC remains relevant in some **database / transaction manager** contexts but is **hard to apply** across heterogeneous, loosely coupled HTTP services without additional infrastructure and operational discipline.
 
 ---
 
-*This file documents conceptual limitations of the protocol as illustrated by the `two-phase-commit/` demo; it is not an exhaustive treatment of distributed transactions.*
+_This file documents conceptual limitations of the protocol as illustrated by the `two-phase-commit/` demo; it is not an exhaustive treatment of distributed transactions._
