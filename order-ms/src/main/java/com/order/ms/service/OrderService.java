@@ -1,5 +1,7 @@
 package com.order.ms.service;
 
+import java.util.Optional;
+
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,11 @@ public class OrderService {
 	public OrderService(OrderRepository orderRepository, KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate) {
 		this.orderRepository = orderRepository;
 		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<Order> getOrderById(Long id) {
+		return orderRepository.findById(id);
 	}
 
 	@Transactional
