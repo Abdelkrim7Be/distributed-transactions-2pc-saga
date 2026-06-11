@@ -1,8 +1,5 @@
 package com.sc.saga;
 
-/**
- * Kafka topic names for the orchestrated saga.
- */
 public final class SagaTopics {
 
 	public static final String ORDER_EVENTS = "order-events";

@@ -25,7 +25,6 @@ public class PaymentSagaService {
 
 	private static final Logger log = LoggerFactory.getLogger(PaymentSagaService.class);
 
-	/** Deterministic failure for demos: refuse very large amounts. */
 	private static final double PAYMENT_FAILURE_THRESHOLD = 500_000d;
 
 	private final PaymentRepository paymentRepository;

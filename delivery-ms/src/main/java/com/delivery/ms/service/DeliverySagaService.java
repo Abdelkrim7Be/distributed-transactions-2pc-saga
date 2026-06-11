@@ -24,7 +24,6 @@ public class DeliverySagaService {
 
 	private static final Logger log = LoggerFactory.getLogger(DeliverySagaService.class);
 
-	/** Deterministic failure for demos. */
 	private static final int DELIVERY_FAILURE_MIN_QUANTITY = 5_000;
 
 	private final DeliveryRepository deliveryRepository;

@@ -7,10 +7,6 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
-/**
- * Canonical Kafka message for the saga pipeline. Compatible with {@link org.springframework.kafka.support.serializer.JsonSerializer}
- * / {@link org.springframework.kafka.support.serializer.JsonDeserializer}.
- */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SagaEvent {
 

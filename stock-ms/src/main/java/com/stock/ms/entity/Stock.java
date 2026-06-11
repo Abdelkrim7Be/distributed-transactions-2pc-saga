@@ -9,9 +9,6 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * Saga inventory row: one row per product with available quantity (H2).
- */
 @Getter
 @Setter
 @Entity

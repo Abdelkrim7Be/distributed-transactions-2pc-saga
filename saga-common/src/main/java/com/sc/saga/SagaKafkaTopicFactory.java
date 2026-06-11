@@ -3,9 +3,6 @@ package com.sc.saga;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.kafka.config.TopicBuilder;
 
-/**
- * Builds {@link NewTopic} beans for local / single-broker clusters (replication factor 1).
- */
 public final class SagaKafkaTopicFactory {
 
 	private static final int PARTITIONS = 3;

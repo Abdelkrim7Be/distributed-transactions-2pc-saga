@@ -55,11 +55,6 @@ public class KafkaSagaConfig {
 		return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props));
 	}
 
-	/**
-	 * Use with {@code @KafkaListener(..., containerFactory = "sagaEventKafkaListenerContainerFactory")}.
-	 * Consumer factory is not exposed as its own bean so Boot can still auto-configure default
-	 * {@code KafkaTemplate} / string-based listeners for legacy topics.
-	 */
 	@Bean
 	public ConcurrentKafkaListenerContainerFactory<String, SagaEvent> sagaEventKafkaListenerContainerFactory(
 			@Value("${spring.kafka.bootstrap-servers}") String bootstrap,

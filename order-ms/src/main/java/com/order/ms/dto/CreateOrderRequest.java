@@ -11,6 +11,5 @@ public class CreateOrderRequest {
 	private int quantity;
 	private double amount;
 
-	/** Optional: {@code STOCK}, {@code PAYMENT}, or {@code DELIVERY} to force failure at that step. */
 	private String failAt;
 }

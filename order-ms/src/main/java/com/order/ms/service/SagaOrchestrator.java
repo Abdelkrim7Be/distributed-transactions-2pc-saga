@@ -38,9 +38,6 @@ public class SagaOrchestrator {
 		this.self = self;
 	}
 
-	/**
-	 * Orchestrates forward steps and compensation from stock, payment, and delivery topics.
-	 */
 	@KafkaListener(
 			topics = { SagaTopics.STOCK_EVENTS, SagaTopics.PAYMENT_EVENTS, SagaTopics.DELIVERY_EVENTS },
 			containerFactory = "sagaEventKafkaListenerContainerFactory",
@@ -158,7 +155,6 @@ public class SagaOrchestrator {
 
 		Map<String, Object> payload = order.toSagaPayload();
 
-		// Reverse order: delivery → payment → stock (only steps that completed in the happy path).
 		if (needDeliveryCancel) {
 			publishCompensation(SagaTopics.DELIVERY_EVENTS, SagaEventType.DELIVERY_CANCELLED, orderId, payload, "DELIVERY_CANCELLED");
 			order.setCompensationStatus(CompensationStatus.DELIVERY_CANCEL_PUBLISHED);
