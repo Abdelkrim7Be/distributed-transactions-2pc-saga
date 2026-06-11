@@ -22,6 +22,11 @@ import org.springframework.kafka.support.serializer.JsonSerializer;
 import com.sc.saga.SagaEvent;
 import com.sc.saga.SagaKafkaTopicFactory;
 
+import org.apache.kafka.common.TopicPartition;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
+
 @Configuration
 public class KafkaSagaConfig {
 
@@ -71,5 +76,13 @@ public class KafkaSagaConfig {
 				new ConcurrentKafkaListenerContainerFactory<>();
 		factory.setConsumerFactory(consumerFactory);
 		return factory;
+	}
+
+	@Bean
+	public DefaultErrorHandler defaultErrorHandler(KafkaTemplate<String, ?> template) {
+		DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
+				(record, ex) -> new TopicPartition(record.topic() + ".DLT", -1));
+		// Retry 3 times with 1s intervals
+		return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 2));
 	}
 }
