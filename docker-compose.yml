@@ -21,8 +21,48 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  
+  order-ms:
+    build: ./order-ms
+    container_name: saga-order-ms
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  payment-ms:
+    build: ./payment-ms
+    container_name: saga-payment-ms
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  stock-ms:
+    build: ./stock-ms
+    container_name: saga-stock-ms
+    depends_on:
+      - kafka
+    ports:
+      - "8082:8082"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  delivery-ms:
+    build: ./delivery-ms
+    container_name: saga-delivery-ms
+    depends_on:
+      - kafka
+    ports:
+      - "8083:8083"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
