@@ -21,11 +21,11 @@ import com.sc.saga.SagaTopics;
 public class OrderService {
 
 	private final OrderRepository orderRepository;
-	private final KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate;
+	private final OutboxService outboxService;
 
-	public OrderService(OrderRepository orderRepository, KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate) {
+	public OrderService(OrderRepository orderRepository, OutboxService outboxService) {
 		this.orderRepository = orderRepository;
-		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+		this.outboxService = outboxService;
 	}
 
 	@Transactional(readOnly = true)
@@ -55,7 +55,8 @@ public class OrderService {
 				SagaEventType.ORDER_CREATED,
 				EventStatus.SUCCESS,
 				order.toSagaPayload());
-		sagaEventKafkaTemplate.send(SagaTopics.ORDER_EVENTS, created);
+		
+		outboxService.saveEvent(SagaTopics.ORDER_EVENTS, created);
 
 		return new OrderResponse(order.getId(), order.getStatus());
 	}
