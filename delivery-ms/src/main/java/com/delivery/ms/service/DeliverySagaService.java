@@ -27,15 +27,15 @@ public class DeliverySagaService {
 	private static final int DELIVERY_FAILURE_MIN_QUANTITY = 5_000;
 
 	private final DeliveryRepository deliveryRepository;
-	private final KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate;
+	private final OutboxService outboxService;
 	private final DeliverySagaService self;
 
 	public DeliverySagaService(
 			DeliveryRepository deliveryRepository,
-			KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate,
+			OutboxService outboxService,
 			@Lazy DeliverySagaService self) {
 		this.deliveryRepository = deliveryRepository;
-		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+		this.outboxService = outboxService;
 		this.self = self;
 	}
 
@@ -100,7 +100,7 @@ public class DeliverySagaService {
 
 		Map<String, Object> out = copyPayload(p);
 		SagaEvent ok = SagaEvent.of(orderId, SagaEventType.DELIVERY_SCHEDULED, EventStatus.SUCCESS, out);
-		sagaEventKafkaTemplate.send(SagaTopics.DELIVERY_EVENTS, ok);
+		outboxService.saveEvent(SagaTopics.DELIVERY_EVENTS, ok);
 		log.info("{} | orderId={} action=DELIVERY_SCHEDULED address={} deliveryId={}", Instant.now(), orderId, address, shipment.getId());
 	}
 
@@ -121,11 +121,12 @@ public class DeliverySagaService {
 				() -> log.warn("{} | orderId={} action=DELIVERY_CANCEL_SKIP_NO_ROW", now, orderId));
 	}
 
-	private void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
+	@Transactional
+	protected void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
 		Map<String, Object> out = copyPayload(originalPayload);
 		out.put("reason", reason);
 		SagaEvent fail = SagaEvent.of(orderId, SagaEventType.DELIVERY_FAILED, EventStatus.FAILED, out);
-		sagaEventKafkaTemplate.send(SagaTopics.DELIVERY_EVENTS, fail);
+		outboxService.saveEvent(SagaTopics.DELIVERY_EVENTS, fail);
 		log.info("{} | orderId={} action=DELIVERY_FAILED_PUBLISHED reason={}", Instant.now(), orderId, reason);
 	}
 

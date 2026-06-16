@@ -26,15 +26,15 @@ public class SagaOrchestrator {
 	private static final Logger log = LoggerFactory.getLogger(SagaOrchestrator.class);
 
 	private final OrderRepository orderRepository;
-	private final KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate;
+	private final OutboxService outboxService;
 	private final SagaOrchestrator self;
 
 	public SagaOrchestrator(
 			OrderRepository orderRepository,
-			KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate,
+			OutboxService outboxService,
 			@Lazy SagaOrchestrator self) {
 		this.orderRepository = orderRepository;
-		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+		this.outboxService = outboxService;
 		this.self = self;
 	}
 
@@ -90,12 +90,13 @@ public class SagaOrchestrator {
 					SagaEventType.PAYMENT_REQUESTED,
 					EventStatus.SUCCESS,
 					order.toSagaPayload());
-			sagaEventKafkaTemplate.send(SagaTopics.PAYMENT_EVENTS, next);
+			outboxService.saveEvent(SagaTopics.PAYMENT_EVENTS, next);
 			log.debug("orderId={} STOCK_RESERVED -> PAYMENT_REQUESTED", orderId);
 		});
 	}
 
-	private void onPaymentProcessed(Long orderId) {
+	@Transactional
+	protected void onPaymentProcessed(Long orderId) {
 		orderRepository.findById(orderId).ifPresent(order -> {
 			if (order.getStatus() != OrderStatus.STOCK_RESERVED) {
 				return;
@@ -107,7 +108,7 @@ public class SagaOrchestrator {
 					SagaEventType.DELIVERY_REQUESTED,
 					EventStatus.SUCCESS,
 					order.toSagaPayload());
-			sagaEventKafkaTemplate.send(SagaTopics.DELIVERY_EVENTS, next);
+			outboxService.saveEvent(SagaTopics.DELIVERY_EVENTS, next);
 			log.debug("orderId={} PAYMENT_PROCESSED -> DELIVERY_REQUESTED", orderId);
 		});
 	}
@@ -195,7 +196,7 @@ public class SagaOrchestrator {
 					orderId);
 		}
 
-		sagaEventKafkaTemplate.send(
+		outboxService.saveEvent(
 				SagaTopics.ORDER_EVENTS,
 				SagaEvent.of(orderId, SagaEventType.ORDER_FAILED, EventStatus.FAILED, payload));
 		log.info(
@@ -223,6 +224,6 @@ public class SagaOrchestrator {
 				stepLabel,
 				topic,
 				type);
-		sagaEventKafkaTemplate.send(topic, SagaEvent.of(orderId, type, EventStatus.SUCCESS, payload));
+		outboxService.saveEvent(topic, SagaEvent.of(orderId, type, EventStatus.SUCCESS, payload));
 	}
 }

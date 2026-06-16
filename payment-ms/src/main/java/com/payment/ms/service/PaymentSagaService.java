@@ -28,15 +28,15 @@ public class PaymentSagaService {
 	private static final double PAYMENT_FAILURE_THRESHOLD = 500_000d;
 
 	private final PaymentRepository paymentRepository;
-	private final KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate;
+	private final OutboxService outboxService;
 	private final PaymentSagaService self;
 
 	public PaymentSagaService(
 			PaymentRepository paymentRepository,
-			KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate,
+			OutboxService outboxService,
 			@Lazy PaymentSagaService self) {
 		this.paymentRepository = paymentRepository;
-		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+		this.outboxService = outboxService;
 		this.self = self;
 	}
 
@@ -45,17 +45,10 @@ public class PaymentSagaService {
 			containerFactory = "sagaEventKafkaListenerContainerFactory",
 			groupId = "payment-saga-participant")
 	public void onPaymentSagaEvent(SagaEvent event) {
-		Instant now = Instant.now();
 		switch (event.getEventType()) {
-			case PAYMENT_REQUESTED -> {
-				log.info("{} | orderId={} action=PAYMENT_REQUEST_RECEIVED", now, event.getOrderId());
-				self.handlePaymentRequested(event);
-			}
-			case PAYMENT_REFUNDED -> {
-				log.info("{} | orderId={} action=PAYMENT_REFUND_RECEIVED", now, event.getOrderId());
-				self.handlePaymentRefunded(event);
-			}
-			default -> log.debug("{} | orderId={} action=IGNORE_PAYMENT_EVENT type={}", now, event.getOrderId(), event.getEventType());
+			case PAYMENT_REQUESTED -> self.handlePaymentRequested(event);
+			case PAYMENT_REFUNDED -> self.handlePaymentRefunded(event);
+			default -> log.debug("Ignore event type={}", event.getEventType());
 		}
 	}
 
@@ -102,7 +95,7 @@ public class PaymentSagaService {
 
 		Map<String, Object> out = copyPayload(p);
 		SagaEvent ok = SagaEvent.of(orderId, SagaEventType.PAYMENT_PROCESSED, EventStatus.SUCCESS, out);
-		sagaEventKafkaTemplate.send(SagaTopics.PAYMENT_EVENTS, ok);
+		outboxService.saveEvent(SagaTopics.PAYMENT_EVENTS, ok);
 		log.info("{} | orderId={} action=PAYMENT_PROCESSED amount={} mode={}", Instant.now(), orderId, amount, mode);
 	}
 
@@ -125,11 +118,12 @@ public class PaymentSagaService {
 		log.info("{} | orderId={} action=PAYMENT_REFUND_APPLIED paymentId={}", Instant.now(), orderId, payment.getId());
 	}
 
-	private void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
+	@Transactional
+	protected void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
 		Map<String, Object> out = copyPayload(originalPayload);
 		out.put("reason", reason);
 		SagaEvent fail = SagaEvent.of(orderId, SagaEventType.PAYMENT_FAILED, EventStatus.FAILED, out);
-		sagaEventKafkaTemplate.send(SagaTopics.PAYMENT_EVENTS, fail);
+		outboxService.saveEvent(SagaTopics.PAYMENT_EVENTS, fail);
 		log.info("{} | orderId={} action=PAYMENT_FAILED_PUBLISHED reason={}", Instant.now(), orderId, reason);
 	}
 

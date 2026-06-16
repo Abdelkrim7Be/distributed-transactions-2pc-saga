@@ -25,15 +25,15 @@ public class StockSagaService {
 	private static final Logger log = LoggerFactory.getLogger(StockSagaService.class);
 
 	private final InventoryStockRepository inventoryStockRepository;
-	private final KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate;
+	private final OutboxService outboxService;
 	private final StockSagaService self;
 
 	public StockSagaService(
 			InventoryStockRepository inventoryStockRepository,
-			KafkaTemplate<String, SagaEvent> sagaEventKafkaTemplate,
+			OutboxService outboxService,
 			@Lazy StockSagaService self) {
 		this.inventoryStockRepository = inventoryStockRepository;
-		this.sagaEventKafkaTemplate = sagaEventKafkaTemplate;
+		this.outboxService = outboxService;
 		this.self = self;
 	}
 
@@ -122,7 +122,7 @@ public class StockSagaService {
 		inventoryStockRepository.save(row);
 		Map<String, Object> out = copyPayload(originalPayload);
 		SagaEvent ok = SagaEvent.of(orderId, SagaEventType.STOCK_RESERVED, EventStatus.SUCCESS, out);
-		sagaEventKafkaTemplate.send(SagaTopics.STOCK_EVENTS, ok);
+		outboxService.saveEvent(SagaTopics.STOCK_EVENTS, ok);
 		log.info(
 				"{} | orderId={} action=STOCK_RESERVED productId={} reserved={} remaining={}",
 				Instant.now(),
@@ -149,11 +149,12 @@ public class StockSagaService {
 				() -> log.warn("{} | action=STOCK_RELEASE_SKIP_NO_ROW productId={}", now, productId));
 	}
 
-	private void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
+	@Transactional
+	protected void publishFailed(Long orderId, Map<String, Object> originalPayload, String reason) {
 		Map<String, Object> out = copyPayload(originalPayload);
 		out.put("reason", reason);
 		SagaEvent fail = SagaEvent.of(orderId, SagaEventType.STOCK_RESERVE_FAILED, EventStatus.FAILED, out);
-		sagaEventKafkaTemplate.send(SagaTopics.STOCK_EVENTS, fail);
+		outboxService.saveEvent(SagaTopics.STOCK_EVENTS, fail);
 		log.info("{} | orderId={} action=STOCK_RESERVE_FAILED reason={}", Instant.now(), orderId, reason);
 	}
 

@@ -1,6 +1,7 @@
 package com.stock.ms.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -11,13 +12,18 @@ import com.stock.ms.entity.WareHouse;
 import com.stock.ms.entity.StockRepository;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/")
 public class StockController {
 
 	@Autowired
 	private StockRepository repository;
 
-	@PostMapping("/addItems")
+	@GetMapping
+	public String index() {
+		return "Stock Service is running.";
+	}
+
+	@PostMapping("/api/addItems")
 	public void addItems(@RequestBody Stock stock) {
 		Iterable<WareHouse> items = repository.findByItem(stock.getItem());
 

@@ -14,7 +14,7 @@ import com.order.ms.entity.Order;
 import com.order.ms.service.OrderService;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/")
 public class OrderController {
 
 	private final OrderService orderService;
@@ -23,12 +23,17 @@ public class OrderController {
 		this.orderService = orderService;
 	}
 
-	@GetMapping("/order/{id}")
+	@GetMapping
+	public String index() {
+		return "Saga Order Service is running. Use POST /api/order to create an order.";
+	}
+
+	@GetMapping("/api/order/{id}")
 	public ResponseEntity<Order> getOrderById(@PathVariable Long id) {
 		return orderService.getOrderById(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
 	}
 
-	@PostMapping("/order")
+	@PostMapping("/api/order")
 	public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
 		return ResponseEntity.ok(orderService.startSaga(request));
 	}
