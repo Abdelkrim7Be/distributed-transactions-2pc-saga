@@ -1,153 +1,108 @@
-# Saga order pipeline (Spring Boot + Kafka)
+# Distributed Transactions Laboratory: Saga vs. 2PC
 
-This repository is a **multi-service demo** of a **distributed saga** for a simple e-commerce order: reserve stock, take payment, schedule delivery. Services communicate through **Apache Kafka** topics using a shared **`SagaEvent`** JSON envelope (`saga-common`). **order-ms** is the **orchestrator**: it reacts to participant outcomes and publishes the next command or **compensating** events when something fails.
+This project is a high-fidelity demonstration of **Distributed Transaction Patterns** using Spring Boot, Apache Kafka, and OpenTelemetry. It provides a practical laboratory to explore and compare **Event-Driven Sagas** (Eventual Consistency) and **Two-Phase Commit** (Strong Consistency).
 
-## Concepts
+## 🚀 Key Architectural Patterns
 
-| Idea | Role here |
-|------|-----------|
-| **Saga** | Long-running business process split across services; each step has a **local transaction** and a matching **compensation** if later steps fail. |
-| **Orchestration** | A single component (**SagaOrchestrator**) decides what to do next from events; participants stay dumb about the global flow. |
-| **Choreography vs orchestration** | This project uses **orchestration** for the main path and failure path (order service drives `PAYMENT_REQUESTED`, `DELIVERY_REQUESTED`, and compensation publishes). |
-| **2PC** | Classic two-phase commit is **not** implemented here; sagas trade **eventual consistency** and explicit undo steps for **availability** without a global lock. |
+### 1. Choreographed Saga (Orchestrated)
+- **Mechanism:** Asynchronous communication via Kafka.
+- **Resilience:** Implements automatic compensation (rollbacks) when a step in the chain fails (e.g., Payment failure triggers Stock release).
+- **Observability:** Stitched together with OpenTelemetry and Jaeger for full distributed trace visualization.
 
-## Architecture
+### 2. Transactional Outbox Pattern
+- **Problem Solved:** The "Dual-Write" problem.
+- **Implementation:** Business logic and event logging happen in a single atomic DB transaction. A background relay ensures the event is eventually published to Kafka, even if the service crashes after the DB commit.
 
-```mermaid
-flowchart LR
-  subgraph clients [Client]
-    HTTP[HTTP]
-  end
-  subgraph order [order-ms :8080]
-    OC[OrderController]
-    OS[OrderService]
-    SO[SagaOrchestrator]
-  end
-  subgraph kafka [Kafka]
-    OE[order-events]
-    SE[stock-events]
-    PE[payment-events]
-    DE[delivery-events]
-  end
-  subgraph participants [Participants]
-    ST[stock-ms :8082]
-    PY[payment-ms :8081]
-    DV[delivery-ms :8083]
-  end
-  HTTP --> OC --> OS
-  OS --> OE
-  OE --> ST
-  SE --> SO
-  PE --> SO
-  DE --> SO
-  SO --> PE
-  SO --> DE
-  ST --> SE
-  PY --> PE
-  DV --> DE
+### 3. Idempotent Consumer (Inbox Pattern)
+- **Problem Solved:** Duplicate message processing (at-least-once delivery side effects).
+- **Implementation:** Every service tracks `eventId`s in an `inbox_events` table. Duplicate messages are detected and discarded within the business transaction.
+
+### 4. Two-Phase Commit (2PC) Lab
+- **Mechanism:** Synchronous **Prepare-Commit** flow via REST.
+- **Trade-off:** Demonstrates strong consistency and immediate feedback at the cost of higher latency and resource locking.
+
+---
+
+## 🛠️ Technology Stack
+- **Java 17** & **Spring Boot 3.1.5**
+- **Apache Kafka** (Message Broker)
+- **OpenTelemetry** & **Jaeger** (Distributed Tracing)
+- **H2 Database** (In-memory persistence for demo simplicity)
+- **Docker & Docker Compose** (Containerization)
+
+---
+
+## 🏗️ Getting Started
+
+### 1. Build the Project
+```bash
+mvn clean install -DskipTests
 ```
 
-## Modules
-
-| Module | Purpose |
-|--------|---------|
-| `saga-common` | Shared `SagaEvent`, `SagaEventType`, `SagaTopics`, topic factory helpers. |
-| `order-ms` | REST API, `Order` persistence, publishes `ORDER_CREATED`, runs **SagaOrchestrator**. |
-| `stock-ms` | Listens `order-events` (`ORDER_CREATED`), publishes `STOCK_RESERVED` / failure; listens `STOCK_RELEASED` for compensation. |
-| `payment-ms` | Listens `payment-events` (`PAYMENT_REQUESTED`, `PAYMENT_REFUNDED`). |
-| `delivery-ms` | Listens `delivery-events` (`DELIVERY_REQUESTED`, `DELIVERY_CANCELLED`). |
-
-## Happy path (forward flow)
-
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant O as order-ms
-  participant K as Kafka
-  participant S as stock-ms
-  participant P as payment-ms
-  participant D as delivery-ms
-  C->>O: POST /api/order
-  O->>O: save Order CREATED
-  O->>K: ORDER_CREATED (order-events)
-  K->>S: ORDER_CREATED
-  S->>K: STOCK_RESERVED (stock-events)
-  K->>O: STOCK_RESERVED
-  O->>K: PAYMENT_REQUESTED (payment-events)
-  K->>P: PAYMENT_REQUESTED
-  P->>K: PAYMENT_PROCESSED
-  K->>O: PAYMENT_PROCESSED
-  O->>K: DELIVERY_REQUESTED (delivery-events)
-  K->>D: DELIVERY_REQUESTED
-  D->>K: DELIVERY_SCHEDULED
-  K->>O: DELIVERY_SCHEDULED
-  O->>O: Order DELIVERED
+### 2. Launch Infrastructure & Services
+```bash
+docker-compose up -d --build
 ```
 
-## Compensation (failure path)
+### 3. Open Observability Dashboard
+- **Jaeger UI:** [http://localhost:16686](http://localhost:16686)
 
-When a participant publishes a **failure** event (`STOCK_RESERVE_FAILED`, `PAYMENT_FAILED`, `DELIVERY_FAILED`) or `EventStatus.FAILED`, the orchestrator runs **reverse** steps only for work that actually completed: cancel delivery (if delivered), refund payment (if paid), release stock (if reserved), then publishes `ORDER_FAILED` on `order-events` and sets the order to **FAILED**. `CompensationStatus` on the order records how far publishing progressed.
+---
 
-```mermaid
-flowchart TB
-  F[Failure event received]
-  F --> D{Was DELIVERED?}
-  D -->|yes| DC[Publish DELIVERY_CANCELLED]
-  D -->|no| R
-  DC --> R{Was PAYMENT_PROCESSED or DELIVERED?}
-  R -->|yes| PR[Publish PAYMENT_REFUNDED]
-  R -->|no| SR
-  PR --> SR{Was STOCK_RESERVED+?}
-  SR -->|yes| RS[Publish STOCK_RELEASED]
-  SR -->|no| OF
-  RS --> OF[Publish ORDER_FAILED, mark FAILED]
+## 🧪 Interactive Demos
+
+### Demo 1: The Asynchronous Saga (Success)
+Trigger a full order flow: Stock $\rightarrow$ Payment $\rightarrow$ Delivery.
+```bash
+curl -X POST http://localhost:8888/api/order \
+     -H "Content-Type: application/json" \
+     -d '{"productId": 1, "quantity": 1, "amount": 100.0}'
+```
+*Check Jaeger to see the "Waterfall" of Kafka events across 4 services.*
+
+### Demo 2: Automatic Compensation (Failure)
+Simulate a failure at the **Payment** step.
+```bash
+curl -X POST http://localhost:8888/api/order \
+     -H "Content-Type: application/json" \
+     -d '{"productId": 1, "quantity": 1, "amount": 100.0, "failAt": "PAYMENT"}'
+```
+*In Jaeger, observe the `STOCK_RELEASED` compensation event being triggered automatically.*
+
+### Demo 3: The 2PC Alternative (Synchronous)
+Demonstrate strong consistency via a 2-Phase Commit flow.
+```bash
+curl -X POST http://localhost:8888/api/2pc/order \
+     -H "Content-Type: application/json" \
+     -d '{"productId": 1, "quantity": 1, "amount": 10.0}'
+```
+*Observe the immediate, synchronous response compared to the background processing of the Saga.*
+
+---
+
+## 🛡️ Robustness Validation
+To verify the **Transactional Outbox** and **Idempotency** logic, access any service's H2 console:
+- **Order-MS Console:** [http://localhost:8888/h2-console](http://localhost:8888/h2-console)
+- **JDBC URL:** `jdbc:h2:mem:ordersdb`
+- **User:** `sa` | **Password:** *(empty)*
+
+Run:
+```sql
+SELECT * FROM OUTBOX_EVENTS;  -- Verification of the Outbox Relay
+SELECT * FROM INBOX_EVENTS;   -- Verification of Idempotency tracking
 ```
 
-## Failure simulation
+---
 
-Optional JSON field **`failAt`** on create order: `"STOCK"`, `"PAYMENT"`, or `"DELIVERY"` (case-insensitive). It is stored on the order and copied into every saga **payload** so the matching service can **simulate** a failure without changing inventory or payment rules.
+## 📊 Comparison: Saga vs. 2PC
 
-## REST API
+| Feature | Saga Pattern | Two-Phase Commit (2PC) |
+| :--- | :--- | :--- |
+| **Consistency** | Eventual | Strong |
+| **Availability** | High (Asynchronous) | Lower (Synchronous) |
+| **Scalability** | High (Kafka-based) | Low (Central Coordinator) |
+| **Complexity** | High (Compensation logic) | High (Protocol overhead) |
+| **Isolation** | None (ACID "I" missing) | Guaranteed (Locks resources) |
 
-- `POST /api/order` — body: `productId`, `quantity`, `amount`, optional `failAt`. Starts the saga.
-- `GET /api/order/{id}` — returns the **Order** entity or **404**.
-
-## Ports
-
-| Service | Port |
-|---------|------|
-| order-ms | 8080 |
-| payment-ms | 8081 |
-| stock-ms | 8082 |
-| delivery-ms | 8083 |
-| Kafka (host) | 9092 |
-
-## Run locally
-
-1. Start Kafka (and ZooKeeper) from the repo root:
-
-   ```bash
-   docker compose up -d
-   ```
-
-2. Install shared library and run all services (separate terminals or your IDE):
-
-   ```bash
-   mvn clean install -pl saga-common -am
-   mvn spring-boot:run -pl order-ms
-   mvn spring-boot:run -pl stock-ms
-   mvn spring-boot:run -pl payment-ms
-   mvn spring-boot:run -pl delivery-ms
-   ```
-
-   Each module expects `spring.kafka.bootstrap-servers=localhost:9092` (already in `application.properties`).
-
-3. Run tests (Kafka need not be up for default tests; listeners are disabled in test `application.properties` where configured):
-
-   ```bash
-   mvn test
-   ```
-
-## Aggregator build
-
-The root `pom.xml` lists `saga-common` and all microservices so you can build the whole tree with `mvn clean install` from the repository root.
+---
+*Created by Abdelkrim - A showcase of Distributed Systems Engineering.*
