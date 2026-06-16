@@ -2,6 +2,7 @@ package com.order.ms.service;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,9 @@ import com.sc.saga.SagaEvent;
 import com.sc.saga.SagaEventType;
 import com.sc.saga.SagaTopics;
 
+import com.order.ms.entity.ProcessedEvent;
+import com.order.ms.entity.ProcessedEventRepository;
+
 @Service
 public class SagaOrchestrator {
 
@@ -27,14 +31,17 @@ public class SagaOrchestrator {
 
 	private final OrderRepository orderRepository;
 	private final OutboxService outboxService;
+	private final ProcessedEventRepository processedEventRepository;
 	private final SagaOrchestrator self;
 
 	public SagaOrchestrator(
 			OrderRepository orderRepository,
 			OutboxService outboxService,
+			ProcessedEventRepository processedEventRepository,
 			@Lazy SagaOrchestrator self) {
 		this.orderRepository = orderRepository;
 		this.outboxService = outboxService;
+		this.processedEventRepository = processedEventRepository;
 		this.self = self;
 	}
 
@@ -48,6 +55,12 @@ public class SagaOrchestrator {
 
 	@Transactional
 	public void handleParticipantEvent(SagaEvent event) {
+		UUID eventId = event.getEventId();
+		if (eventId != null && processedEventRepository.existsById(eventId)) {
+			log.info("Event {} already processed, skipping.", eventId);
+			return;
+		}
+
 		Long orderId = event.getOrderId();
 		if (orderId == null) {
 			return;
@@ -55,6 +68,7 @@ public class SagaOrchestrator {
 
 		if (event.getStatus() == EventStatus.FAILED || isFailureEventType(event.getEventType())) {
 			orderRepository.findById(orderId).ifPresent(this::compensate);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
@@ -68,6 +82,15 @@ public class SagaOrchestrator {
 			case DELIVERY_SCHEDULED -> onDeliveryScheduled(orderId);
 			default -> {
 			}
+		}
+		markEventAsProcessed(eventId);
+	}
+
+	private void markEventAsProcessed(UUID eventId) {
+		if (eventId != null) {
+			ProcessedEvent processedEvent = new ProcessedEvent();
+			processedEvent.setEventId(eventId);
+			processedEventRepository.save(processedEvent);
 		}
 	}
 

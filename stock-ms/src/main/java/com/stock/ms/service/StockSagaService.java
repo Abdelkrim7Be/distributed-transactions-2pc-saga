@@ -3,6 +3,7 @@ package com.stock.ms.service;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,11 @@ import com.sc.saga.SagaTopics;
 import com.stock.ms.entity.InventoryStockRepository;
 import com.stock.ms.entity.Stock;
 
+import com.stock.ms.entity.ProcessedEvent;
+import com.stock.ms.entity.ProcessedEventRepository;
+
+import java.util.UUID;
+
 @Service
 public class StockSagaService {
 
@@ -26,14 +32,17 @@ public class StockSagaService {
 
 	private final InventoryStockRepository inventoryStockRepository;
 	private final OutboxService outboxService;
+	private final ProcessedEventRepository processedEventRepository;
 	private final StockSagaService self;
 
 	public StockSagaService(
 			InventoryStockRepository inventoryStockRepository,
 			OutboxService outboxService,
+			ProcessedEventRepository processedEventRepository,
 			@Lazy StockSagaService self) {
 		this.inventoryStockRepository = inventoryStockRepository;
 		this.outboxService = outboxService;
+		this.processedEventRepository = processedEventRepository;
 		this.self = self;
 	}
 
@@ -47,6 +56,13 @@ public class StockSagaService {
 			log.debug("{} | orderId={} action=IGNORE_ORDER_EVENT type={}", now, event.getOrderId(), event.getEventType());
 			return;
 		}
+
+		UUID eventId = event.getEventId();
+		if (eventId != null && processedEventRepository.existsById(eventId)) {
+			log.info("Event {} already processed, skipping.", eventId);
+			return;
+		}
+
 		Long orderId = event.getOrderId();
 		Map<String, Object> p = event.getPayload();
 		long productId = longValue(p.get("productId"), -1L);
@@ -63,10 +79,11 @@ public class StockSagaService {
 			if (orderId != null) {
 				publishFailed(orderId, p, "invalid payload");
 			}
+			markEventAsProcessed(eventId);
 			return;
 		}
 
-		self.reserveAndPublish(orderId, productId, qty, p);
+		self.reserveAndPublish(orderId, productId, qty, p, eventId);
 	}
 
 	@KafkaListener(
@@ -79,6 +96,13 @@ public class StockSagaService {
 			log.debug("{} | orderId={} action=IGNORE_STOCK_EVENT type={}", now, event.getOrderId(), event.getEventType());
 			return;
 		}
+
+		UUID eventId = event.getEventId();
+		if (eventId != null && processedEventRepository.existsById(eventId)) {
+			log.info("Event {} already processed, skipping.", eventId);
+			return;
+		}
+
 		Long orderId = event.getOrderId();
 		Map<String, Object> p = event.getPayload();
 		long productId = longValue(p.get("productId"), -1L);
@@ -87,24 +111,27 @@ public class StockSagaService {
 
 		if (orderId == null || productId < 0 || qty <= 0) {
 			log.warn("{} | orderId={} action=STOCK_RELEASE_SKIP invalid payload", Instant.now(), orderId);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
-		self.releaseStock(productId, qty);
+		self.releaseStock(productId, qty, eventId);
 	}
 
 	@Transactional
-	protected void reserveAndPublish(Long orderId, long productId, int qty, Map<String, Object> originalPayload) {
+	protected void reserveAndPublish(Long orderId, long productId, int qty, Map<String, Object> originalPayload, UUID eventId) {
 		Instant now = Instant.now();
 		if (failAtStep(originalPayload, "STOCK")) {
 			publishFailed(orderId, originalPayload, "simulated failure (failAt=STOCK)");
 			log.warn("{} | orderId={} action=STOCK_FAIL_SIMULATED failAt=STOCK", Instant.now(), orderId);
+			markEventAsProcessed(eventId);
 			return;
 		}
 		Stock row = inventoryStockRepository.findByProductId(productId).orElse(null);
 		if (row == null) {
 			log.warn("{} | orderId={} action=STOCK_NOT_FOUND productId={}", now, orderId, productId);
 			publishFailed(orderId, originalPayload, "unknown product");
+			markEventAsProcessed(eventId);
 			return;
 		}
 		if (row.getAvailableQuantity() < qty) {
@@ -116,6 +143,7 @@ public class StockSagaService {
 					qty,
 					row.getAvailableQuantity());
 			publishFailed(orderId, originalPayload, "insufficient stock");
+			markEventAsProcessed(eventId);
 			return;
 		}
 		row.setAvailableQuantity(row.getAvailableQuantity() - qty);
@@ -130,10 +158,11 @@ public class StockSagaService {
 				productId,
 				qty,
 				row.getAvailableQuantity());
+		markEventAsProcessed(eventId);
 	}
 
 	@Transactional
-	protected void releaseStock(long productId, int qty) {
+	protected void releaseStock(long productId, int qty, UUID eventId) {
 		Instant now = Instant.now();
 		inventoryStockRepository.findByProductId(productId).ifPresentOrElse(
 				row -> {
@@ -147,6 +176,15 @@ public class StockSagaService {
 							row.getAvailableQuantity());
 				},
 				() -> log.warn("{} | action=STOCK_RELEASE_SKIP_NO_ROW productId={}", now, productId));
+		markEventAsProcessed(eventId);
+	}
+
+	private void markEventAsProcessed(UUID eventId) {
+		if (eventId != null) {
+			ProcessedEvent processedEvent = new ProcessedEvent();
+			processedEvent.setEventId(eventId);
+			processedEventRepository.save(processedEvent);
+		}
 	}
 
 	@Transactional
