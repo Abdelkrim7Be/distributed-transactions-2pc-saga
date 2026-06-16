@@ -3,6 +3,7 @@ package com.delivery.ms.service;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,11 @@ import com.sc.saga.SagaEvent;
 import com.sc.saga.SagaEventType;
 import com.sc.saga.SagaTopics;
 
+import com.delivery.ms.entity.ProcessedEvent;
+import com.delivery.ms.entity.ProcessedEventRepository;
+
+import java.util.UUID;
+
 @Service
 public class DeliverySagaService {
 
@@ -28,14 +34,17 @@ public class DeliverySagaService {
 
 	private final DeliveryRepository deliveryRepository;
 	private final OutboxService outboxService;
+	private final ProcessedEventRepository processedEventRepository;
 	private final DeliverySagaService self;
 
 	public DeliverySagaService(
 			DeliveryRepository deliveryRepository,
 			OutboxService outboxService,
+			ProcessedEventRepository processedEventRepository,
 			@Lazy DeliverySagaService self) {
 		this.deliveryRepository = deliveryRepository;
 		this.outboxService = outboxService;
+		this.processedEventRepository = processedEventRepository;
 		this.self = self;
 	}
 
@@ -44,6 +53,12 @@ public class DeliverySagaService {
 			containerFactory = "sagaEventKafkaListenerContainerFactory",
 			groupId = "delivery-saga-participant")
 	public void onDeliverySagaEvent(SagaEvent event) {
+		UUID eventId = event.getEventId();
+		if (eventId != null && processedEventRepository.existsById(eventId)) {
+			log.info("Event {} already processed, skipping.", eventId);
+			return;
+		}
+
 		Instant now = Instant.now();
 		switch (event.getEventType()) {
 			case DELIVERY_REQUESTED -> {
@@ -62,18 +77,21 @@ public class DeliverySagaService {
 	protected void handleDeliveryRequested(SagaEvent event) {
 		Instant now = Instant.now();
 		Long orderId = event.getOrderId();
+		UUID eventId = event.getEventId();
 		Map<String, Object> p = event.getPayload();
 		int quantity = intValue(p.get("quantity"), 0);
 		String address = p.get("address") != null ? p.get("address").toString() : "default-warehouse";
 
 		if (orderId == null) {
 			log.warn("{} | action=DELIVERY_REQUEST_INVALID no orderId", now);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
 		if (failAtStep(p, "DELIVERY")) {
 			publishFailed(orderId, p, "simulated failure (failAt=DELIVERY)");
 			log.warn("{} | orderId={} action=DELIVERY_FAIL_SIMULATED failAt=DELIVERY", Instant.now(), orderId);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
@@ -89,6 +107,7 @@ public class DeliverySagaService {
 					Instant.now(),
 					orderId,
 					DELIVERY_FAILURE_MIN_QUANTITY);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
@@ -102,14 +121,17 @@ public class DeliverySagaService {
 		SagaEvent ok = SagaEvent.of(orderId, SagaEventType.DELIVERY_SCHEDULED, EventStatus.SUCCESS, out);
 		outboxService.saveEvent(SagaTopics.DELIVERY_EVENTS, ok);
 		log.info("{} | orderId={} action=DELIVERY_SCHEDULED address={} deliveryId={}", Instant.now(), orderId, address, shipment.getId());
+		markEventAsProcessed(eventId);
 	}
 
 	@Transactional
 	protected void handleDeliveryCancelled(SagaEvent event) {
 		Instant now = Instant.now();
 		Long orderId = event.getOrderId();
+		UUID eventId = event.getEventId();
 		if (orderId == null) {
 			log.warn("{} | action=DELIVERY_CANCEL_SKIP no orderId", now);
+			markEventAsProcessed(eventId);
 			return;
 		}
 		deliveryRepository.findFirstByOrderId(orderId).ifPresentOrElse(
@@ -119,6 +141,15 @@ public class DeliverySagaService {
 					log.info("{} | orderId={} action=DELIVERY_CANCEL_APPLIED deliveryId={}", Instant.now(), orderId, shipment.getId());
 				},
 				() -> log.warn("{} | orderId={} action=DELIVERY_CANCEL_SKIP_NO_ROW", now, orderId));
+		markEventAsProcessed(eventId);
+	}
+
+	private void markEventAsProcessed(UUID eventId) {
+		if (eventId != null) {
+			ProcessedEvent processedEvent = new ProcessedEvent();
+			processedEvent.setEventId(eventId);
+			processedEventRepository.save(processedEvent);
+		}
 	}
 
 	@Transactional

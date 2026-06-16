@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,11 @@ import com.sc.saga.SagaEvent;
 import com.sc.saga.SagaEventType;
 import com.sc.saga.SagaTopics;
 
+import com.payment.ms.entity.ProcessedEvent;
+import com.payment.ms.entity.ProcessedEventRepository;
+
+import java.util.UUID;
+
 @Service
 public class PaymentSagaService {
 
@@ -29,14 +35,17 @@ public class PaymentSagaService {
 
 	private final PaymentRepository paymentRepository;
 	private final OutboxService outboxService;
+	private final ProcessedEventRepository processedEventRepository;
 	private final PaymentSagaService self;
 
 	public PaymentSagaService(
 			PaymentRepository paymentRepository,
 			OutboxService outboxService,
+			ProcessedEventRepository processedEventRepository,
 			@Lazy PaymentSagaService self) {
 		this.paymentRepository = paymentRepository;
 		this.outboxService = outboxService;
+		this.processedEventRepository = processedEventRepository;
 		this.self = self;
 	}
 
@@ -45,6 +54,12 @@ public class PaymentSagaService {
 			containerFactory = "sagaEventKafkaListenerContainerFactory",
 			groupId = "payment-saga-participant")
 	public void onPaymentSagaEvent(SagaEvent event) {
+		UUID eventId = event.getEventId();
+		if (eventId != null && processedEventRepository.existsById(eventId)) {
+			log.info("Event {} already processed, skipping.", eventId);
+			return;
+		}
+
 		switch (event.getEventType()) {
 			case PAYMENT_REQUESTED -> self.handlePaymentRequested(event);
 			case PAYMENT_REFUNDED -> self.handlePaymentRefunded(event);
@@ -56,6 +71,7 @@ public class PaymentSagaService {
 	protected void handlePaymentRequested(SagaEvent event) {
 		Instant now = Instant.now();
 		Long orderId = event.getOrderId();
+		UUID eventId = event.getEventId();
 		Map<String, Object> p = event.getPayload();
 		double amount = doubleValue(p.get("amount"), -1d);
 		String mode = p.get("paymentMode") != null ? p.get("paymentMode").toString() : "CARD";
@@ -65,12 +81,14 @@ public class PaymentSagaService {
 			if (orderId != null) {
 				publishFailed(orderId, p, "invalid payment payload");
 			}
+			markEventAsProcessed(eventId);
 			return;
 		}
 
 		if (failAtStep(p, "PAYMENT")) {
 			publishFailed(orderId, p, "simulated failure (failAt=PAYMENT)");
 			log.warn("{} | orderId={} action=PAYMENT_FAIL_SIMULATED failAt=PAYMENT", Instant.now(), orderId);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
@@ -83,6 +101,7 @@ public class PaymentSagaService {
 			paymentRepository.save(payment);
 			publishFailed(orderId, p, "amount exceeds simulated limit");
 			log.warn("{} | orderId={} action=PAYMENT_FAILED_SIMULATED amount>={}", now, orderId, PAYMENT_FAILURE_THRESHOLD);
+			markEventAsProcessed(eventId);
 			return;
 		}
 
@@ -97,25 +116,38 @@ public class PaymentSagaService {
 		SagaEvent ok = SagaEvent.of(orderId, SagaEventType.PAYMENT_PROCESSED, EventStatus.SUCCESS, out);
 		outboxService.saveEvent(SagaTopics.PAYMENT_EVENTS, ok);
 		log.info("{} | orderId={} action=PAYMENT_PROCESSED amount={} mode={}", Instant.now(), orderId, amount, mode);
+		markEventAsProcessed(eventId);
 	}
 
 	@Transactional
 	protected void handlePaymentRefunded(SagaEvent event) {
 		Instant now = Instant.now();
 		Long orderId = event.getOrderId();
+		UUID eventId = event.getEventId();
 		if (orderId == null) {
 			log.warn("{} | action=PAYMENT_REFUND_SKIP no orderId", now);
+			markEventAsProcessed(eventId);
 			return;
 		}
 		List<Payment> payments = paymentRepository.findByOrderId(orderId);
 		if (payments.isEmpty()) {
 			log.warn("{} | orderId={} action=PAYMENT_REFUND_SKIP_NO_PAYMENT", now, orderId);
+			markEventAsProcessed(eventId);
 			return;
 		}
 		Payment payment = payments.get(0);
 		payment.setStatus("REFUNDED");
 		paymentRepository.save(payment);
 		log.info("{} | orderId={} action=PAYMENT_REFUND_APPLIED paymentId={}", Instant.now(), orderId, payment.getId());
+		markEventAsProcessed(eventId);
+	}
+
+	private void markEventAsProcessed(UUID eventId) {
+		if (eventId != null) {
+			ProcessedEvent processedEvent = new ProcessedEvent();
+			processedEvent.setEventId(eventId);
+			processedEventRepository.save(processedEvent);
+		}
 	}
 
 	@Transactional
