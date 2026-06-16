@@ -95,7 +95,8 @@ public class SagaOrchestrator {
 		});
 	}
 
-	private void onPaymentProcessed(Long orderId) {
+	@Transactional
+	protected void onPaymentProcessed(Long orderId) {
 		orderRepository.findById(orderId).ifPresent(order -> {
 			if (order.getStatus() != OrderStatus.STOCK_RESERVED) {
 				return;

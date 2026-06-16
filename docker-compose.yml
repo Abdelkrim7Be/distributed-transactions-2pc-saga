@@ -36,7 +36,8 @@ services:
       - "8888:8080"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_SERVICE_NAME=order-ms
 
   payment-ms:
     build: ./payment-ms
@@ -47,7 +48,8 @@ services:
       - "8081:8081"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_SERVICE_NAME=payment-ms
 
   stock-ms:
     build: ./stock-ms
@@ -58,7 +60,8 @@ services:
       - "8082:8082"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_SERVICE_NAME=stock-ms
 
   delivery-ms:
     build: ./delivery-ms
@@ -69,11 +72,17 @@ services:
       - "8083:8083"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_SERVICE_NAME=delivery-ms
 
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: saga-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_OTLP_HTTP_HOST=0.0.0.0
+      - COLLECTOR_OTLP_GRPC_HOST=0.0.0.0
     ports:
       - "16686:16686" # Jaeger UI
-      - "4317:4317"   # OTLP gRPC endpoint for traces
+      - "4317:4317"   # OTLP gRPC endpoint
+      - "4318:4318"   # OTLP HTTP endpoint

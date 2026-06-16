@@ -45,8 +45,11 @@ public class PaymentSagaService {
 			containerFactory = "sagaEventKafkaListenerContainerFactory",
 			groupId = "payment-saga-participant")
 	public void onPaymentSagaEvent(SagaEvent event) {
-		// This exception is for testing the DLQ.
-		throw new RuntimeException("Forced failure for DLQ test");
+		switch (event.getEventType()) {
+			case PAYMENT_REQUESTED -> self.handlePaymentRequested(event);
+			case PAYMENT_REFUNDED -> self.handlePaymentRefunded(event);
+			default -> log.debug("Ignore event type={}", event.getEventType());
+		}
 	}
 
 	@Transactional
